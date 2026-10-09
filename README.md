@@ -30,8 +30,9 @@ npm start                   # http://localhost:3000
 |---|---|
 | `npm start` | 启动服务，默认 <http://localhost:3000> |
 | `npm run seed` | 重置 `data/db.json` 为种子数据 |
-| `npm run check` | 骨架自检：目录结构 / 后端路由挂载 / 前端路由表 / 视图导出 / 脚本加载顺序 |
+| `npm run check` | 骨架自检：目录结构 / 后端路由挂载 / 前端路由表 / 视图导出 / 共享模块双端可用 / 脚本加载顺序 |
 | `npm run smoke` | 渲染冒烟（**需先 `npm start`**）：用最小 DOM mock 驱动真实视图，逐条渲染 10 个页面；结束后自动恢复种子数据 |
+| `npm run verify:t1` | T1 专项验收（**需先 `npm start`**）：购物袋总计页面渲染 + 勾选/取消实时联动 |
 | `npm test` | 运行 `tests/*.test.js`（node:test，零第三方依赖、离线） |
 
 ## 目录结构
@@ -59,7 +60,9 @@ npm start                   # http://localhost:3000
 │       └── views/         home · store · category · product · bag · orders · favorites · account · admin
 ├── scripts/
 │   ├── check-skeleton.js  骨架自检（npm run check）
-│   └── render-smoke.js    视图渲染冒烟（npm run smoke，需服务已启动）
+│   ├── render-smoke.js    视图渲染冒烟（npm run smoke，需服务已启动）
+│   ├── verify-t1-page.js  T1 页面层验收：购物袋总计渲染值
+│   └── verify-t1-toggle.js T1 联动验收：勾选/取消后总计实时变化
 ├── docs/
 │   └── EXAM.md            考核题目文档（原样存档）
 └── tests/                 price · cart · api 冒烟（15 个既有测试，请勿删改）
@@ -110,11 +113,49 @@ npm start                   # http://localhost:3000
 | 任务 | 内容 | 状态 |
 |---|---|---|
 | 任务 0 | 环境搭建：依赖安装、目录结构、开发环境配置、基础路由与页面框架 | 已完成（本文件 + `DEV.md` 所述即成果） |
-| T1 | 缺陷修复：购物袋合计把未勾选商品也计入了（`shared/cart.js:35`） | 待做 |
+| T1 | 缺陷修复：购物袋合计把未勾选商品也计入了（`shared/cart.js`） | **已完成**，见下节 |
 | T2 | 功能实现：商品规格价格联动与库存状态（`shared/price.js:45`） | 待做 |
 | T3 | 自动化测试：补齐 `calcSelectedTotal` / `resolvePrice` 覆盖 | 待做 |
 
-> ⚠️ 任务 0 完成后，购买页仍恒定显示基础价、购物袋合计仍包含未勾选商品——这是基座**刻意保留的缺陷**（T1 / T2 的目标），不是环境问题。
+> ⚠️ T2 之前，购买页仍恒定显示基础价——这是基座**刻意保留的缺陷**，不是环境问题。
+
+## T1 缺陷修复说明（已完成）
+
+**根因**：`shared/cart.js` 的 `calcSelectedTotal(items)` 对所有条目直接求和，reduce 里漏掉了 `selected` 判断，于是未勾选的 MagSafe 保护壳（¥199.00）也被计入了"总计"。
+
+**改法**（最小改动，只动共享计算逻辑这一处）：
+
+```js
+return items.reduce(
+  (sum, item) =>
+    item && item.selected === true
+      ? sum + (Number(item.unitPrice) || 0) * (Number(item.qty) || 0)
+      : sum,
+  0,
+);
+```
+
+- 用 `selected === true` 严格判断：`undefined` / `0` / `1` 等都不算勾选，不会被误计入。
+- 保留原有的 `Number(...) || 0` 容错，脏字段不会产生 `NaN`。
+- **未改动**：`calcCartCount`（角标按数量求和、不看勾选，是正确设计）、`server/seed.js` 勾选态、`tests/` 既有测试、任何调用方传参。
+
+**验证结果**（均为实测）：
+
+| 场景 | 结果 |
+|---|---|
+| 种子数据全勾选 | ¥11,997.00（899900 + 149900×2）✅ 修复前为 ¥12,196.00 |
+| 取消勾选 AirPods(102) | ¥8,999.00 |
+| 只勾 AirPods | ¥2,998.00 |
+| 全部取消勾选 | ¥0.00 |
+| 空数组 / `null` / `undefined` / 数字 / 字符串 / 对象 | 均返回 0，不抛异常 |
+| `selected` 缺失、`selected:1`、`null` 条目、字段缺失 | 不崩、不计入 |
+| `calcCartCount` 回归 | 仍为 4（不看勾选） |
+| 页面实时联动 | 取消/勾选后"总计"与"已选 N 件"实时变化 |
+| `PUT /api/cart/102 {"selected":false}` | 仍 200 |
+| 全部取消后 `POST /api/orders` | 仍 400"没有已勾选的商品" |
+| `npm test` | 15 passed / 0 failed，exit 0 |
+
+一键复跑：`npm run verify:t1`（需先 `npm start`）。
 
 ## 约束与红线（来自考题）
 

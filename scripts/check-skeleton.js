@@ -126,6 +126,42 @@ function checkFrontendRoutes() {
   });
 }
 
+/**
+ * 双端共享模块必须"浏览器挂 window、Node 走 require"。
+ * 这里把 CommonJS 标识符遮蔽为 undefined，还原真实浏览器经典 <script> 环境，
+ * 验证 shared/price.js → window.PriceUtils、shared/cart.js → window.CartUtils。
+ */
+function checkSharedUmd() {
+  const cases = [
+    { file: "shared/price.js", global: "PriceUtils", api: ["formatPrice", "resolvePrice"] },
+    { file: "shared/cart.js", global: "CartUtils", api: ["calcCartCount", "calcSelectedTotal"] },
+  ];
+  cases.forEach(({ file, global, api }) => {
+    const code = fs.readFileSync(path.join(ROOT, file), "utf8");
+    const win = {};
+    try {
+      new Function("window", "self", "module", "exports", "require", code)(win, win, undefined, undefined, undefined);
+    } catch (err) {
+      problems.push(`${file} 在浏览器方式下加载失败：${err.message}`);
+      return;
+    }
+    const exposed = win[global];
+    if (!exposed) {
+      problems.push(`${file} 未在浏览器方式下挂载 window.${global}（会与 Node 端实现分叉）`);
+      return;
+    }
+    api.forEach((fn) => {
+      if (typeof exposed[fn] !== "function") problems.push(`${file} 的 ${global} 缺少函数 ${fn}`);
+    });
+    // 同时确认 Node 端 require 得到同一组 API
+    const nodeApi = require(path.join(ROOT, file));
+    api.forEach((fn) => {
+      if (typeof nodeApi[fn] !== "function") problems.push(`${file} 的 Node 导出缺少函数 ${fn}`);
+    });
+  });
+  notes.push(`共享模块双端可用：${cases.map((c) => c.global).join(", ")}`);
+}
+
 function checkViewExports() {
   Object.entries(VIEW_FILE).forEach(([view, file]) => {
     const abs = path.join(PUBLIC_DIR, "js", "views", file);
@@ -182,6 +218,7 @@ function main() {
   checkBackendMounts();
   checkFrontendRoutes();
   checkViewExports();
+  checkSharedUmd();
   checkScriptOrder();
   notes.forEach((n) => console.log("  · " + n));
   if (problems.length) {
