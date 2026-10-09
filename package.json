@@ -1,0 +1,22 @@
+{
+  "name": "mall-exam-base",
+  "version": "1.0.0",
+  "private": true,
+  "description": "科技产品商城（考核基座）：Node + Express + JSON 持久化 + 无构建 SPA 前端",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "seed": "node server/db.js --reset",
+    "check": "node scripts/check-skeleton.js",
+    "smoke": "node scripts/render-smoke.js",
+    "verify:t1": "node scripts/verify-t1-page.js && node scripts/verify-t1-toggle.js",
+    "verify:t2": "node scripts/verify-t2.js",
+    "test": "node --test tests/*.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
