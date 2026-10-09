@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LumiStore · 科技产品商城</title>
+  <link rel="stylesheet" href="/css/app.css" />
+</head>
+<body>
+  <header class="site-nav">
+    <div class="nav-inner">
+      <a class="brand" href="#/">LumiStore</a>
+      <nav class="nav-links" id="navLinks">
+        <a href="#/" data-route="home">首页</a>
+        <a href="#/store" data-route="store">商店</a>
+        <a href="#/category/1" data-route="category">分类</a>
+        <a href="#/favorites" data-route="favorites">收藏</a>
+        <a href="#/orders" data-route="orders">订单</a>
+        <a href="#/bag" data-route="bag">购物袋<span class="bag-badge" id="bagBadge" hidden>0</span></a>
+        <a href="#/account" data-route="account">账户</a>
+        <a href="#/admin/products" data-route="admin" id="navAdmin" hidden>后台</a>
+      </nav>
+      <a class="bag-entry" href="#/bag" aria-label="购物袋">🛍️<span class="bag-badge" id="bagBadgeTop" hidden>0</span></a>
+    </div>
+  </header>
+
+  <main id="app" class="app-main"><div class="loading">加载中…</div></main>
+
+  <footer class="site-footer">
+    <p>LumiStore · 考核基座演示商城 · 数据保存在本地 data/db.json</p>
+  </footer>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="/shared/price.js"></script>
+  <script src="/shared/cart.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/state.js"></script>
+  <script src="/js/router.js"></script>
+  <script src="/js/views/home.js"></script>
+  <script src="/js/views/store.js"></script>
+  <script src="/js/views/category.js"></script>
+  <script src="/js/views/product.js"></script>
+  <script src="/js/views/bag.js"></script>
+  <script src="/js/views/orders.js"></script>
+  <script src="/js/views/favorites.js"></script>
+  <script src="/js/views/account.js"></script>
+  <script src="/js/views/admin.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>
