@@ -128,6 +128,12 @@ npm start          # 2. 启动服务 → http://localhost:3000
 npm test           # 3. 15 个既有测试应全绿，退出码 0
 ```
 
+> ⚠️ **执行顺序有讲究**：`npm test` 之后请重启服务再跑页面级验收。
+> `tests/api.test.js` 会调用 `db.reset()` 并真实下单，从而改写 `data/db.json`；而运行中的服务持有自己的
+> 进程内缓存（见 7 节），于是会出现"磁盘是种子数据、接口返回的却是测试后的状态"。
+> 建议顺序：`npm start` → `npm run verify:t1` / `verify:t2`（需服务的页面级验收）→ `npm test`（纯计算，无需服务）
+> → 若要继续手工点页面，先 `Ctrl+C` 重启服务。
+
 手工冒烟（服务已启动）：
 
 ```powershell
@@ -201,6 +207,8 @@ npm run verify:t2
 | 9 | 静态资源全部可达 | ✅ `index.html` 引用的 15 个脚本 + `app.css` 均 200 |
 | 10 | 共享模块双端可用（浏览器挂 window / Node require） | ✅ `npm run check` 含 UMD 双端断言 |
 | 11 | 核心逻辑未退回桩实现 | ✅ `npm run check` 断言 `resolvePrice` 默认价≠顶配价、`calcSelectedTotal` 排除未勾选 |
+| 12 | 既有 15 个测试未被删改、仍全绿 | ✅ 单独运行 `node --test tests/api.test.js tests/cart.test.js tests/price.test.js` → 15 pass |
+| 13 | 新增测试并统一入口 | ✅ `npm test` → 57 pass / 0 fail / 0 skipped，exit 0 |
 
 ### T1 / T2 移动端适配
 

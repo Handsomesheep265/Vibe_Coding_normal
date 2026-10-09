@@ -67,7 +67,13 @@ npm start                   # http://localhost:3000
 │   └── verify-t2.js       T2 验收：价格联动 / 库存状态 / 三方金额一致
 ├── docs/
 │   └── EXAM.md            考核题目文档（原样存档）
-└── tests/                 price · cart · api 冒烟（15 个既有测试，请勿删改）
+└── tests/                 15 个既有测试（未改动）+ 42 个新增测试 = 57 个
+    ├── api.test.js            既有：登录/购物袋/下单/后台权限/响应契约
+    ├── cart.test.js           既有：calcCartCount
+    ├── price.test.js          既有：formatPrice
+    ├── cart-selected-total.test.js  新增：calcSelectedTotal
+    ├── price-resolve.test.js        新增：resolvePrice
+    └── price-format.test.js         新增：formatPrice 加固 + 既有测试完整性自检
 ```
 
 ## 前后端两条链路
@@ -117,7 +123,7 @@ npm start                   # http://localhost:3000
 | 任务 0 | 环境搭建：依赖安装、目录结构、开发环境配置、基础路由与页面框架 | 已完成（`DEV.md` 所述即成果） |
 | T1 | 缺陷修复：购物袋合计把未勾选商品也计入了（`shared/cart.js`） | **已完成**，见下节 |
 | T2 | 功能实现：商品规格价格联动与库存状态（`shared/price.js`） | **已完成**，见下节 |
-| T3 | 自动化测试：补齐 `calcSelectedTotal` / `resolvePrice` 覆盖 | 待做 |
+| T3 | 自动化测试：为核心计算补齐覆盖 | **已完成**，见下节 |
 
 ## 已知问题（基座自带，尚未修复）
 
@@ -221,6 +227,59 @@ function resolvePrice(product, variant) {
 | `npm test` | 15 passed / 0 failed | ✅ |
 
 一键复跑：`npm run verify:t2`（需先 `npm start`；脚本会改动 3002 的购物袋并下单验证，结束后自动重置种子数据）。
+
+## T3 自动化测试说明（已完成）
+
+**统一入口**：`npm test` 一条命令、零依赖（`node:test` + `node:assert`）、全程离线、退出码 `0`。
+实际结果：**57 个测试全部通过（15 个既有 + 42 个新增），0 失败、0 跳过**。
+
+### 测试文件与覆盖矩阵
+
+| 文件 | 数量 | 覆盖 |
+|---|---|---|
+| `tests/api.test.js`（既有，未改动） | 8 | 登录 / 购物袋 / 下单 / 后台权限 / 响应契约 |
+| `tests/cart.test.js`（既有，未改动） | 2 | `calcCartCount` |
+| `tests/price.test.js`（既有，未改动） | 5 | `formatPrice` |
+| **`tests/cart-selected-total.test.js`（新增）** | 14 | `calcSelectedTotal` |
+| **`tests/price-resolve.test.js`（新增）** | 21 | `resolvePrice` |
+| **`tests/price-format.test.js`（新增）** | 7 | `formatPrice` 加固 + 既有测试完整性自检 |
+
+**`calcSelectedTotal`**（题目要求的四项全覆盖，另加边界）：
+种子 fixture（2 勾 1 不勾）`= 1199700`；只勾 AirPods `= 299800`；取消 AirPods `= 899900`；全不勾 `= 0`；
+空数组 `= 0`；10 种非数组输入（`null`/`undefined`/数字/字符串/对象/类数组/`Map`/`Set`…）一律 `= 0` 且不抛错；
+`selected` 缺失、`null`、`1`、`"true"`、`"false"` 均不计入；脏条目跳过不污染合计；
+`calcCartCount` 回归（按数量求和、不看勾选）；不修改入参；与种子数据一致性。
+
+**`resolvePrice`**：默认规格 `= 899900`；Pro Max + 1TB `= 1159900`；Pro Max + 512GB `= 1079900`；文档示例 `= 979900`；
+未知型号/未知容量差价按 0；部分未知时另一部分仍生效；`variant` 缺省字段不抛错（`{}`、`null`、`undefined`、字符串、数字）；
+颜色不影响价格；非法 `product` 返回 0；空规格数组/缺规格列表/脏 `priceDelta`；规格项 `name` 与 `label` 两种字段名都能匹配；
+全部 6 个种子商品"默认价 = 基础价、顶配价 = 基础价 + 各项差价"；种子购物袋 `unitPrice` 与 `resolvePrice` 一致；**UMD 双端结果一致**。
+
+**`formatPrice`** 加固：三位以上分组、大额、负数、负零、非法输入、四舍五入与浮点误差、极大值；既有 5 个断言保持原样未改。
+
+### 防止"既有测试被删改"的自检
+
+`tests/price-format.test.js` 内含一条自检，读取三个既有测试文件并断言：
+文件存在、测试数分别为 8/2/5、总数 15，且**不得出现** `test.skip` / `test.only` / `test.todo` / `describe.skip` / `{ skip: true }`（检查前先剥离注释，避免把说明文字误判）。
+
+### 变异测试（证明断言非"空转"）
+
+把产品逻辑或既有测试故意改坏，确认测试会失败：
+
+| 变异 | 结果 |
+|---|---|
+| `shared/cart.js` 把 `selected === true` 改成恒真（重造 T1 缺陷） | ✅ 捕获，7 个测试失败 |
+| `shared/price.js` 退回桩实现（重造 T2 缺陷） | ✅ 捕获，12 个测试失败 |
+| 把既有测试改成 `test.skip`（数量不变） | ✅ 捕获，完整性自检失败 |
+| 删除一个既有测试（数量减少） | ✅ 捕获，完整性自检失败 |
+| `formatPrice` 去掉千分位分组 | ✅ 捕获，3 个测试失败 |
+
+### 手法约束遵守情况
+
+- 测试文件全部位于 `tests/` 下，命名为 `<被测函数>-<语义>.test.js`。
+- **未改** 任何既有测试文件（`git diff tests/api.test.js tests/cart.test.js tests/price.test.js` 为空），无 skip/disable。
+- **未** 把断言写进产品代码；**未** 为测试改变任何浏览器内行为。
+- 期望值取自《题目文档》验收表与种子数据，未按 id/名称写死特判；对数据的依赖统一走 `require("../server/seed")` 的只读种子，**不读会被其它测试 `db.reset()` 改写的 `data/db.json`**（避免并发测试文件互相干扰）。
 
 ## 约束与红线（来自考题）
 
