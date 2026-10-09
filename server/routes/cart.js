@@ -29,7 +29,21 @@ function defaultVariant(product) {
 router.get("/", requireAuth, (req, res) => {
   const db = load();
   const cart = db.carts.find((c) => c.userId === req.currentUser.id);
-  return ok(res, cart ? cart.items : []);
+  if (!cart) return ok(res, []);
+  // 补齐种子条目缺失的 name/image：种子数据里这两项没有（POST 加购的条目才有），
+  // 直接返回会让购物袋页标题显示成 "undefined"。这里按 productId 从商品表回填，
+  // 返回新对象，不改动 cart.items 本身（避免被后续 save() 落盘）。
+  return ok(
+    res,
+    cart.items.map((item) => {
+      const product = db.products.find((p) => p.id === item.productId);
+      return {
+        ...item,
+        name: item.name || (product ? product.name : "") || item.model || "",
+        image: item.image || (product ? product.image : "") || "",
+      };
+    }),
+  );
 });
 
 router.post("/", requireAuth, (req, res) => {
