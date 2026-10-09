@@ -33,6 +33,7 @@ npm start                   # http://localhost:3000
 | `npm run check` | 骨架自检：目录结构 / 后端路由挂载 / 前端路由表 / 视图导出 / 共享模块双端可用 / 脚本加载顺序 |
 | `npm run smoke` | 渲染冒烟（**需先 `npm start`**）：用最小 DOM mock 驱动真实视图，逐条渲染 10 个页面；结束后自动恢复种子数据 |
 | `npm run verify:t1` | T1 专项验收（**需先 `npm start`**）：购物袋总计页面渲染 + 勾选/取消实时联动 |
+| `npm run verify:t2` | T2 专项验收（**需先 `npm start`**）：规格价格联动 + 库存状态 + 页面/购物袋/订单三方一致 |
 | `npm test` | 运行 `tests/*.test.js`（node:test，零第三方依赖、离线） |
 
 ## 目录结构
@@ -62,7 +63,8 @@ npm start                   # http://localhost:3000
 │   ├── check-skeleton.js  骨架自检（npm run check）
 │   ├── render-smoke.js    视图渲染冒烟（npm run smoke，需服务已启动）
 │   ├── verify-t1-page.js  T1 页面层验收：购物袋总计渲染值
-│   └── verify-t1-toggle.js T1 联动验收：勾选/取消后总计实时变化
+│   ├── verify-t1-toggle.js T1 联动验收：勾选/取消后总计实时变化
+│   └── verify-t2.js       T2 验收：价格联动 / 库存状态 / 三方金额一致
 ├── docs/
 │   └── EXAM.md            考核题目文档（原样存档）
 └── tests/                 price · cart · api 冒烟（15 个既有测试，请勿删改）
@@ -112,12 +114,21 @@ npm start                   # http://localhost:3000
 
 | 任务 | 内容 | 状态 |
 |---|---|---|
-| 任务 0 | 环境搭建：依赖安装、目录结构、开发环境配置、基础路由与页面框架 | 已完成（本文件 + `DEV.md` 所述即成果） |
+| 任务 0 | 环境搭建：依赖安装、目录结构、开发环境配置、基础路由与页面框架 | 已完成（`DEV.md` 所述即成果） |
 | T1 | 缺陷修复：购物袋合计把未勾选商品也计入了（`shared/cart.js`） | **已完成**，见下节 |
-| T2 | 功能实现：商品规格价格联动与库存状态（`shared/price.js:45`） | 待做 |
+| T2 | 功能实现：商品规格价格联动与库存状态（`shared/price.js`） | **已完成**，见下节 |
 | T3 | 自动化测试：补齐 `calcSelectedTotal` / `resolvePrice` 覆盖 | 待做 |
 
-> ⚠️ T2 之前，购买页仍恒定显示基础价——这是基座**刻意保留的缺陷**，不是环境问题。
+## 已知问题（基座自带，尚未修复）
+
+| # | 问题 | 现象 | 影响 |
+|---|---|---|---|
+| 1 | **购物袋条目 id 冲突**：种子条目已用到 `id: 201`，而 `db.seq.cartItem` 初值也是 `201` | 种子后第一次加购会产生两条相同 id 的条目（如 `201/iPhone Air` 与 `201/MacBook`） | `PUT`/`DELETE /api/cart/201` 会作用在**错误的那一条**，`DELETE` 甚至一次删掉两条（实测复现）。后续"购物袋完整链路"阶段需要处理 |
+| 2 | 种子购物袋条目缺 `name` / `image` 字段（接口新增的条目才有） | 购物袋页种子行的商品名与图标为空白 | 仅影响展示，不影响计价与下单 |
+
+> 问题 1 的复现要点：`node server/db.js --reset` 后用 `3002` 加购任意商品，再看 `GET /api/cart` 的 id 是否重复。
+> 彻底修复要动 `server/seed.js` 的 `seq.cartItem` 初值（种子数据是考核红线，需与出题方确认），
+> 或者把取号逻辑改成"当前最大 id + 1"。本次 T1/T2 都不依赖该行为，故未改动。
 
 ## T1 缺陷修复说明（已完成）
 
@@ -156,6 +167,60 @@ return items.reduce(
 | `npm test` | 15 passed / 0 failed，exit 0 |
 
 一键复跑：`npm run verify:t1`（需先 `npm start`）。
+
+## T2 功能实现说明（已完成）
+
+**根因**：`shared/price.js` 的 `resolvePrice` 是 TODO 桩，任何规格都 `return product.basePrice`，所以购买页切型号/容量价格恒定。
+
+**改法 1 — 共享定价逻辑**（`shared/price.js`，前后端同一份实现）：
+
+```js
+function findDelta(list, value) {
+  if (!Array.isArray(list) || value === undefined || value === null) return 0;
+  const hit = list.find((item) => item && (item.label === value || item.name === value));
+  if (!hit) return 0;
+  const delta = Number(hit.priceDelta);
+  return Number.isFinite(delta) ? delta : 0;
+}
+
+function resolvePrice(product, variant) {
+  if (!product || typeof product !== "object") return 0;
+  const base = Number(product.basePrice);
+  const basePrice = Number.isFinite(base) ? base : 0;
+  const picked = variant && typeof variant === "object" ? variant : {};
+  return basePrice + findDelta(product.models, picked.model) + findDelta(product.storages, picked.storage);
+}
+```
+
+- 价格 = 基础价 + 型号差价 + 容量差价；**颜色不参与定价**（题目明确列为范围外）。
+- `findDelta` 同时接受 `label` 与 `name`：种子里型号用 `name`、容量用 `label`，两种都兼容，避免因字段名不一致算错价。
+- 找不到规格项、规格字段缺省、`priceDelta` 非数字 → 该部分按 0 计，不抛错。
+- **未改动**：UMD 包装方式（服务端 `require` / 浏览器 `<script>` 引入都不变），所以 `server/routes/cart.js` 早已 `require` 的同一份实现直接生效。
+
+**改法 2 — 购买页联动与库存状态**（`public/js/views/product.js`）：
+
+- `pick()` 切换规格后 `repaint()` 重绘 chip 选中态并刷新 `#buyPrice`（价格联动）。
+- 进入页面时重新初始化 `current`，修掉"从商品 A 切到商品 B 会沿用 A 的规格与数量"的问题。
+- 库存为 0：价格区下方显示红色「暂时缺货」（复用已有 `.stock-hint.low`），并把「加入购物袋」按钮设为 `disabled`；`addToCart()` 与 `qty()` 也有兜底提示。
+- 数量步进钳制在 `[1, stock]`。
+- `defaultVariant`/chip 渲染对空规格数组做了容错。
+
+**验证结果**（均为实测）：
+
+| 场景 | 期望 | 实测 |
+|---|---|---|
+| 默认规格（Pro / 深蓝色 / 256GB） | ¥8,999.00 | ✅ |
+| Pro Max + 512GB | ¥10,799.00 | ✅ |
+| Pro Max + 1TB | ¥11,599.00 | ✅ |
+| 服务端加购（MacBook Neo 高速款 + 512GB） | 条目 `unitPrice` = 799900 | ✅ |
+| 页面显示价 = 购物袋单价 = 订单条目单价 | 三者一致 | ✅ |
+| 颜色切换（银色 / 星雾橙色） | 价格不变 | ✅ |
+| MagSafe 充电器（库存 0） | 「暂时缺货」+ 按钮 disabled + 加购被拒（400 库存不足） | ✅ |
+| 数量步进不超过库存 | 库存 5 时连加停在 5、连减停在 1 | ✅ |
+| 边界：`variant` 缺省 / 未知规格 / 空数组 / `null` / 非法 product | 按 0 计或不抛错 | ✅ 27 项 |
+| `npm test` | 15 passed / 0 failed | ✅ |
+
+一键复跑：`npm run verify:t2`（需先 `npm start`；脚本会改动 3002 的购物袋并下单验证，结束后自动重置种子数据）。
 
 ## 约束与红线（来自考题）
 

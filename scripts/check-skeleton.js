@@ -158,8 +158,46 @@ function checkSharedUmd() {
     api.forEach((fn) => {
       if (typeof nodeApi[fn] !== "function") problems.push(`${file} 的 Node 导出缺少函数 ${fn}`);
     });
+    // 来源里不应残留 TODO 桩标记（防止核心逻辑又退回未实现状态）
+    if (/TODO\(考核\)|尚未实现/.test(code)) problems.push(`${file} 仍残留未实现的 TODO 桩标记`);
   });
   notes.push(`共享模块双端可用：${cases.map((c) => c.global).join(", ")}`);
+}
+
+/**
+ * 关键共享逻辑必须与"已实现"的状态一致，不能退回桩实现：
+ *   - resolvePrice：同一商品选不同规格（型号/容量）应得到不同价格
+ *   - calcSelectedTotal：未勾选条目不得计入
+ * 这里用种子商品做行为断言，属于"防回归护栏"。
+ */
+function checkCoreLogic() {
+  const { resolvePrice } = require(path.join(ROOT, "shared", "price.js"));
+  const { calcSelectedTotal } = require(path.join(ROOT, "shared", "cart.js"));
+
+  const p = fs.existsSync(path.join(ROOT, "data", "db.json"))
+    ? JSON.parse(fs.readFileSync(path.join(ROOT, "data", "db.json"), "utf8")).products.find((x) => x.id === 1)
+    : null;
+  if (p) {
+    const dflt = resolvePrice(p, {
+      model: p.models[0].name,
+      color: p.colors[0].name,
+      storage: p.storages[0].label,
+    });
+    const maxed = resolvePrice(p, {
+      model: p.models[p.models.length - 1].name,
+      color: p.colors[0].name,
+      storage: p.storages[p.storages.length - 1].label,
+    });
+    if (dflt !== p.basePrice) problems.push(`resolvePrice 默认规格应等于基础价，实际 ${dflt} / ${p.basePrice}`);
+    if (maxed <= dflt) problems.push(`resolvePrice 高配规格应高于默认规格（型号+容量差价未生效？）实际 ${maxed} / ${dflt}`);
+    notes.push(`resolvePrice 行为：默认 ${dflt} → 顶配 ${maxed}`);
+  }
+
+  const total = calcSelectedTotal([
+    { unitPrice: 100, qty: 1, selected: true },
+    { unitPrice: 999, qty: 1, selected: false },
+  ]);
+  if (total !== 100) problems.push(`calcSelectedTotal 未排除未勾选条目，实际 ${total}（期望 100）`);
 }
 
 function checkViewExports() {
@@ -219,6 +257,7 @@ function main() {
   checkFrontendRoutes();
   checkViewExports();
   checkSharedUmd();
+  checkCoreLogic();
   checkScriptOrder();
   notes.forEach((n) => console.log("  · " + n));
   if (problems.length) {

@@ -10,6 +10,7 @@
     "check": "node scripts/check-skeleton.js",
     "smoke": "node scripts/render-smoke.js",
     "verify:t1": "node scripts/verify-t1-page.js && node scripts/verify-t1-toggle.js",
+    "verify:t2": "node scripts/verify-t2.js",
     "test": "node --test tests/*.test.js"
   },
   "engines": {

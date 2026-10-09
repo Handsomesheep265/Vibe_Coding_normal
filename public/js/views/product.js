@@ -1,7 +1,10 @@
 /**
  * 商品购买页：规格选择（型号/颜色/容量）+ 价格联动 + 库存状态 + 加入购物袋。
  *
- * 考核任务二在本页面体现：切换规格时价格应随规格变化（当前未联动）。
+ * 任务二实现要点：
+ *   - 价格由 root.PriceUtils.resolvePrice 解析（与 server/routes/cart.js 同一份实现），
+ *     切换型号/容量时重绘 #buyPrice；颜色不影响价格。
+ *   - 库存为 0 时显示"暂时缺货"并禁用加入购物袋；数量步进不超过库存。
  */
 (function (root) {
   "use strict";
@@ -11,8 +14,10 @@
 
   async function product(params) {
     const p = await root.Api.product(params.id);
+    // 每次进入页面都重新初始化：避免从商品 A 切到商品 B 时沿用 A 的规格与数量
     current = { product: p, variant: defaultVariant(p), qty: 1 };
     const user = root.Store.state.user;
+    const outOfStock = p.stock <= 0;
     return `
       <div class="buy-layout">
         <div class="buy-preview">${p.image}</div>
@@ -20,6 +25,7 @@
           <h1>${p.name}</h1>
           <p class="muted">${p.tagline || ""}</p>
           <p class="buy-price" id="buyPrice">${root.PriceUtils.formatPrice(root.PriceUtils.resolvePrice(p, current.variant))}</p>
+          ${stockHint(p)}
           <div class="spec-group">
             <h4>型号</h4>
             <div class="chips" id="modelChips">${modelChips(p)}</div>
@@ -32,7 +38,6 @@
             <h4>容量</h4>
             <div class="chips" id="storageChips">${storageChips(p)}</div>
           </div>
-          <p class="stock-hint" id="stockHint">库存 ${p.stock} 件</p>
           <div class="row" style="margin:18px 0">
             <div class="qty-ctrl">
               <button onclick="Views.product.qty(-1)">-</button>
@@ -41,7 +46,7 @@
             </div>
           </div>
           <div class="row">
-            <button class="btn" id="addBagBtn" onclick="Views.product.addToCart()">加入购物袋</button>
+            <button class="btn" id="addBagBtn" onclick="Views.product.addToCart()"${outOfStock ? " disabled" : ""}>加入购物袋</button>
             <button class="btn btn-plain" onclick="Views.product.favorite()">${user ? "收藏" : "登录后可收藏"}</button>
           </div>
         </div>
@@ -49,10 +54,22 @@
   }
 
   function defaultVariant(p) {
-    return { model: p.models[0].name, color: p.colors[0].name, storage: p.storages[0].name };
+    return {
+      model: (p.models[0] || {}).name,
+      color: (p.colors[0] || {}).name,
+      storage: (p.storages[0] || {}).label,
+    };
+  }
+
+  /** 库存提示：库存为 0 时显示"暂时缺货"（复用已有的 .stock-hint.low 红色样式） */
+  function stockHint(p) {
+    return p.stock > 0
+      ? `<p class="stock-hint" id="stockHint">库存 ${p.stock} 件</p>`
+      : `<p class="stock-hint low" id="stockHint">暂时缺货</p>`;
   }
 
   function modelChips(p) {
+    if (!Array.isArray(p.models)) return "";
     return p.models
       .map(
         (m) =>
@@ -63,6 +80,7 @@
   }
 
   function colorChips(p) {
+    if (!Array.isArray(p.colors)) return "";
     return p.colors
       .map(
         (c) =>
@@ -73,6 +91,7 @@
   }
 
   function storageChips(p) {
+    if (!Array.isArray(p.storages)) return "";
     return p.storages
       .map(
         (s) =>
@@ -82,6 +101,7 @@
       .join("");
   }
 
+  /** 切换规格后重绘：chip 选中态 + 价格联动（#buyPrice 实时刷新） */
   function repaint() {
     const p = current.product;
     document.getElementById("modelChips").innerHTML = modelChips(p);
@@ -100,7 +120,13 @@
 
   function qty(delta) {
     if (!current) return;
-    current.qty = Math.max(1, Math.min(current.product.stock || 1, current.qty + delta));
+    const stock = current.product.stock;
+    if (stock <= 0) {
+      root.Store.toast("该商品暂时缺货");
+      return;
+    }
+    // 数量步进不超过库存
+    current.qty = Math.max(1, Math.min(stock, current.qty + delta));
     document.getElementById("qtyValue").textContent = String(current.qty);
   }
 
